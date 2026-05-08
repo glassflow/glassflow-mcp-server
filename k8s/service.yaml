@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: glassflow-mcp
+  namespace: glassflow
+  labels:
+    app: glassflow-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app: glassflow-mcp
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: sse

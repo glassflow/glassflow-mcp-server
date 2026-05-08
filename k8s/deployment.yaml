@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glassflow-mcp
+  namespace: glassflow
+  labels:
+    app: glassflow-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glassflow-mcp
+  template:
+    metadata:
+      labels:
+        app: glassflow-mcp
+    spec:
+      containers:
+        - name: glassflow-mcp
+          image: glassflow-mcp:latest
+          ports:
+            - containerPort: 8080
+              name: sse
+              protocol: TCP
+          env:
+            - name: GLASSFLOW_API_URL
+              value: "http://glassflow-api.glassflow.svc.cluster.local:8081"
+            - name: VICTORIAMETRICS_URL
+              value: "http://vmsingle-victoria-metrics-single-server.observability.svc.cluster.local:8428"
+            - name: VICTORIALOGS_URL
+              value: "http://vlogs-victoria-logs-single-server.observability.svc.cluster.local:9428"
+            - name: MCP_PORT
+              value: "8080"
+          readinessProbe:
+            httpGet:
+              path: /sse
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /sse
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

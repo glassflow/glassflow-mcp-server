@@ -15,9 +15,12 @@ spec:
       labels:
         app: glassflow-mcp
     spec:
+      imagePullSecrets:
+        - name: gcr-image-puller
       containers:
         - name: glassflow-mcp
-          image: glassflow-mcp:latest
+          image: europe-west3-docker.pkg.dev/glassflow-dataforge/pocs/glassflow-mcp-server:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: sse
@@ -26,20 +29,18 @@ spec:
             - name: GLASSFLOW_API_URL
               value: "http://glassflow-api.glassflow.svc.cluster.local:8081"
             - name: VICTORIAMETRICS_URL
-              value: "http://vmsingle-victoria-metrics-single-server.observability.svc.cluster.local:8428"
+              value: "http://glassflow-victoria-metrics-single-server.glassflow.svc.cluster.local:8428"
             - name: VICTORIALOGS_URL
-              value: "http://vlogs-victoria-logs-single-server.observability.svc.cluster.local:9428"
+              value: "http://glassflow-victoria-logs-single-server.glassflow.svc.cluster.local:9428"
             - name: MCP_PORT
               value: "8080"
           readinessProbe:
-            httpGet:
-              path: /sse
+            tcpSocket:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /sse
+            tcpSocket:
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30

@@ -24,11 +24,11 @@ class Config:
             ),
             victoriametrics_url=os.environ.get(
                 "VICTORIAMETRICS_URL",
-                "http://vmsingle-victoria-metrics-single-server.observability.svc.cluster.local:8428",
+                "http://glassflow-victoria-metrics-single-server.glassflow.svc.cluster.local:8428",
             ),
             victorialogs_url=os.environ.get(
                 "VICTORIALOGS_URL",
-                "http://vlogs-victoria-logs-single-server.observability.svc.cluster.local:9428",
+                "http://glassflow-victoria-logs-single-server.glassflow.svc.cluster.local:9428",
             ),
             mcp_port=int(os.environ.get("MCP_PORT", "8080")),
         )

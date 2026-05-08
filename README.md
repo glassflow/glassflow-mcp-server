@@ -52,15 +52,16 @@ kubectl apply -f k8s/
 
 ## Claude Code integration
 
-Add to your Claude Code MCP config:
+Port-forward the service (if running in-cluster):
 
-```json
-{
-  "mcpServers": {
-    "glassflow": {
-      "type": "sse",
-      "url": "http://localhost:8080/sse"
-    }
-  }
-}
+```bash
+kubectl port-forward -n glassflow svc/glassflow-mcp 8080:8080
 ```
+
+Register the MCP server with Claude Code CLI:
+
+```bash
+claude mcp add --transport sse glassflow http://localhost:8080/sse
+```
+
+Start a new Claude Code session — the GlassFlow tools should appear automatically.

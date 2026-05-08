@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from glassflow.etl import Client
 from mcp.server.fastmcp import FastMCP
 
 from glassflow_mcp.config import Config
-from glassflow_mcp.glassflow_client import GlassFlowClient
+from glassflow_mcp.resources import register_resources
 from glassflow_mcp.tools.diagnostics import register_diagnostics_tools
 from glassflow_mcp.tools.pipeline import register_pipeline_tools
 
@@ -22,8 +23,10 @@ mcp = FastMCP(
     port=config.mcp_port,
 )
 
-client = GlassFlowClient(base_url=config.glassflow_api_url)
+client = Client(host=config.glassflow_api_url)
+client.disable_usagestats()
 
+register_resources(mcp)
 register_pipeline_tools(mcp, client)
 register_diagnostics_tools(mcp, client)
 

@@ -3,10 +3,26 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "glassflow-mcp"
+name = "mcp-server-glassflow"
 version = "0.1.0"
-description = "MCP server for GlassFlow pipeline management"
+description = "MCP server for managing and diagnosing GlassFlow streaming pipelines"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "GlassFlow", email = "engineering@glassflow.dev"},
+]
+keywords = ["mcp", "glassflow", "streaming", "pipelines", "clickhouse", "kafka", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "mcp[cli]>=1.0.0",
     "glassflow>=4.0.0",
@@ -20,6 +36,15 @@ dev = [
     "ruff>=0.9.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/glassflow/glassflow-mcp-server"
+Repository = "https://github.com/glassflow/glassflow-mcp-server"
+Issues = "https://github.com/glassflow/glassflow-mcp-server/issues"
+Documentation = "https://docs.glassflow.dev"
+
+[project.scripts]
+mcp-server-glassflow = "glassflow_mcp.server:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
@@ -29,6 +54,3 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-
-[project.scripts]
-glassflow-mcp = "glassflow_mcp.server:main"

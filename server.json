@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.glassflow/glassflow-mcp-server",
+  "title": "GlassFlow",
+  "description": "Manage and diagnose GlassFlow streaming pipelines — create, monitor, query metrics and logs, and troubleshoot pipeline issues via AI agents.",
+  "repository": {
+    "url": "https://github.com/glassflow/glassflow-mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-server-glassflow",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": []
+    }
+  ]
+}

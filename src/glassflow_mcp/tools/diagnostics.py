@@ -31,22 +31,16 @@ _ALLOWED_METRIC_PREFIX = "glassflow_gfm_"
 # Pre-built PromQL templates keyed by metric name.
 # {pid} is replaced with the actual pipeline_id at query time.
 _METRIC_QUERIES = {
-    "throughput_in": (
-        'rate(glassflow_gfm_kafka_records_read_total{{pipeline_id="{pid}"}}[5m])'
-    ),
+    "throughput_in": ('rate(glassflow_gfm_kafka_records_read_total{{pipeline_id="{pid}"}}[5m])'),
     "throughput_out": (
         'rate(glassflow_gfm_clickhouse_records_written_total{{pipeline_id="{pid}"}}[5m])'
     ),
-    "write_rate": (
-        'glassflow_gfm_clickhouse_records_written_per_second{{pipeline_id="{pid}"}}'
-    ),
+    "write_rate": ('glassflow_gfm_clickhouse_records_written_per_second{{pipeline_id="{pid}"}}'),
     "latency_p95": (
         "histogram_quantile(0.95, "
         'rate(glassflow_gfm_processing_duration_seconds_bucket{{pipeline_id="{pid}"}}[5m]))'
     ),
-    "dlq_rate": (
-        'rate(glassflow_gfm_dlq_records_written_total{{pipeline_id="{pid}"}}[5m])'
-    ),
+    "dlq_rate": ('rate(glassflow_gfm_dlq_records_written_total{{pipeline_id="{pid}"}}[5m])'),
     "bytes_in": (
         'rate(glassflow_gfm_bytes_processed_total{{pipeline_id="{pid}",direction="in"}}[5m])'
     ),
@@ -280,10 +274,7 @@ def register_diagnostics_tools(
         if err := _validate_id(pipeline_id, "pipeline_id"):
             return err
 
-        query = (
-            f'pipeline_id:"{pipeline_id}" AND '
-            f'(severity_text:"ERROR" OR severity_text:"WARN")'
-        )
+        query = f'pipeline_id:"{pipeline_id}" AND (severity_text:"ERROR" OR severity_text:"WARN")'
         try:
             logs = vl.query(query, limit=limit)
             formatted = [_format_log_entry(log) for log in logs]
@@ -363,8 +354,7 @@ def register_diagnostics_tools(
 
         # 4. Recent errors
         error_query = (
-            f'pipeline_id:"{pipeline_id}" AND '
-            f'(severity_text:"ERROR" OR severity_text:"WARN")'
+            f'pipeline_id:"{pipeline_id}" AND (severity_text:"ERROR" OR severity_text:"WARN")'
         )
         try:
             logs = vl.query(error_query, limit=10)

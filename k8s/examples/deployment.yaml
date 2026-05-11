@@ -1,8 +1,15 @@
+# GlassFlow MCP Server — Kubernetes Deployment
+#
+# Customize the values marked CHANGEME before applying.
+#
+# Apply:
+#   kubectl apply -f deployment.yaml -f service.yaml
+#
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: glassflow-mcp
-  namespace: glassflow
+  namespace: glassflow          # CHANGEME: namespace where GlassFlow is installed
   labels:
     app: glassflow-mcp
 spec:
@@ -15,23 +22,30 @@ spec:
       labels:
         app: glassflow-mcp
     spec:
-      imagePullSecrets:
-        - name: gcr-image-puller
+      # Uncomment if your image is in a private registry:
+      # imagePullSecrets:
+      #   - name: my-registry-secret
       containers:
         - name: glassflow-mcp
-          image: europe-west3-docker.pkg.dev/glassflow-dataforge/pocs/glassflow-mcp-server:latest
+          image: ghcr.io/glassflow/glassflow-mcp-server:latest  # CHANGEME: your image
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: sse
               protocol: TCP
           env:
+            # CHANGEME: GlassFlow API URL (in-cluster service address)
             - name: GLASSFLOW_API_URL
               value: "http://glassflow-api.glassflow.svc.cluster.local:8081"
+
+            # CHANGEME: VictoriaMetrics URL (leave empty to disable metrics tools)
             - name: VICTORIAMETRICS_URL
               value: "http://glassflow-victoria-metrics-single-server.glassflow.svc.cluster.local:8428"
+
+            # CHANGEME: VictoriaLogs URL (leave empty to disable log tools)
             - name: VICTORIALOGS_URL
               value: "http://glassflow-victoria-logs-single-server.glassflow.svc.cluster.local:9428"
+
             - name: MCP_PORT
               value: "8080"
           readinessProbe:

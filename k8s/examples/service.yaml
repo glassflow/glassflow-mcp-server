@@ -1,8 +1,10 @@
+# GlassFlow MCP Server — Kubernetes Service
+#
 apiVersion: v1
 kind: Service
 metadata:
   name: glassflow-mcp
-  namespace: glassflow
+  namespace: glassflow          # CHANGEME: must match deployment namespace
   labels:
     app: glassflow-mcp
 spec:

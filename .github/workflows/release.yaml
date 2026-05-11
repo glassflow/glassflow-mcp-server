@@ -35,7 +35,8 @@ jobs:
       - run: pip install build
       - run: python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses trusted publishing (OIDC) — configure at pypi.org/manage/project/.../settings/publishing/
+        with:
+          skip-existing: true
 
   publish-docker:
     runs-on: ubuntu-latest

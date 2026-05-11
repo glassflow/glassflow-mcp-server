@@ -45,6 +45,9 @@ Documentation = "https://docs.glassflow.dev"
 [project.scripts]
 mcp-server-glassflow = "glassflow_mcp.server:main"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/glassflow_mcp"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from glassflow.etl import Client
     from mcp.server.fastmcp import FastMCP
+
+logger = logging.getLogger(__name__)
 
 
 def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
@@ -27,6 +30,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             pipelines = client.list_pipelines()
             return json.dumps(pipelines, indent=2, default=str)
         except Exception as exc:
+            logger.exception("list_pipelines failed")
             return f"Error listing pipelines: {exc}"
 
     @mcp.tool()
@@ -46,6 +50,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             p = client.get_pipeline(pipeline_id)
             return json.dumps(p.to_dict(), indent=2, default=str)
         except Exception as exc:
+            logger.exception("get_pipeline failed for %s", pipeline_id)
             return f"Error getting pipeline {pipeline_id}: {exc}"
 
     @mcp.tool()
@@ -65,6 +70,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             health = p.health()
             return json.dumps(health, indent=2, default=str)
         except Exception as exc:
+            logger.exception("get_pipeline_health failed for %s", pipeline_id)
             return f"Error getting health for pipeline {pipeline_id}: {exc}"
 
     @mcp.tool()
@@ -93,6 +99,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
                 indent=2,
             )
         except Exception as exc:
+            logger.exception("create_pipeline failed")
             return f"Error creating pipeline: {exc}"
 
     @mcp.tool()
@@ -110,6 +117,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             client.stop_pipeline(pipeline_id)
             return json.dumps({"status": "stopped", "pipeline_id": pipeline_id})
         except Exception as exc:
+            logger.exception("stop_pipeline failed for %s", pipeline_id)
             return f"Error stopping pipeline {pipeline_id}: {exc}"
 
     @mcp.tool()
@@ -127,7 +135,43 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             p.resume()
             return json.dumps({"status": "resuming", "pipeline_id": pipeline_id})
         except Exception as exc:
+            logger.exception("resume_pipeline failed for %s", pipeline_id)
             return f"Error resuming pipeline {pipeline_id}: {exc}"
+
+    @mcp.tool()
+    def edit_pipeline(pipeline_id: str, config_patch: str) -> str:
+        """Edit a stopped GlassFlow pipeline.
+
+        The pipeline must be in Stopped state before editing. After a
+        successful edit, the pipeline is automatically resumed.
+
+        The config_patch is a JSON string with only the fields you want
+        to change. Supported patch fields: name, sources, transforms,
+        join, sink, resources. Fields not included in the patch remain
+        unchanged.
+
+        Read the resource glassflow://docs/pipeline-v3-format for the
+        V3 field reference.
+
+        Args:
+            pipeline_id: The unique identifier of the pipeline to edit.
+            config_patch: JSON string with the fields to update.
+        """
+        try:
+            patch = json.loads(config_patch)
+        except json.JSONDecodeError as exc:
+            return f"Invalid JSON in config_patch: {exc}"
+
+        try:
+            p = client.get_pipeline(pipeline_id)
+            p.update(patch)
+            return json.dumps(
+                {"status": "edited", "pipeline_id": pipeline_id},
+                indent=2,
+            )
+        except Exception as exc:
+            logger.exception("edit_pipeline failed for %s", pipeline_id)
+            return f"Error editing pipeline {pipeline_id}: {exc}"
 
     @mcp.tool()
     def delete_pipeline(pipeline_id: str) -> str:
@@ -143,4 +187,5 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             client.delete_pipeline(pipeline_id)
             return json.dumps({"status": "deleted", "pipeline_id": pipeline_id})
         except Exception as exc:
+            logger.exception("delete_pipeline failed for %s", pipeline_id)
             return f"Error deleting pipeline {pipeline_id}: {exc}"

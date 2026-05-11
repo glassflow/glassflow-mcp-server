@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: glassflow-mcp
+  namespace: glassflow
+  annotations:
+    # Cloudflare terminates TLS — disable nginx ssl-redirect to avoid loops.
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # SSE connections are long-lived — increase timeouts.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Disable buffering so SSE events stream through immediately.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: mcp.glassflow.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: glassflow-mcp
+                port:
+                  number: 8080

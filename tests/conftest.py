@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from glassflow_mcp.server import create_server
+from glassflow_mcp.cluster import ClusterConnection, ClusterRegistry
 
 
 class MockPipeline:
@@ -133,22 +133,29 @@ class MockVLClient:
         pass
 
 
-@pytest.fixture()
-def gf_client() -> MockGlassFlowClient:
-    return MockGlassFlowClient()
+def make_registry(
+    gf: MockGlassFlowClient | None = None,
+    vm: MockVMClient | None = None,
+    vl: MockVLClient | None = None,
+) -> ClusterRegistry:
+    """Create a ClusterRegistry with a pre-connected 'test' cluster."""
+    gf = gf or MockGlassFlowClient()
+    vm = vm or MockVMClient()
+    vl = vl or MockVLClient()
+
+    reg = ClusterRegistry()
+    conn = ClusterConnection(
+        name="test",
+        api_url="http://test-api:8081",
+        gf_client=gf,
+        vm_client=vm,
+        vl_client=vl,
+    )
+    reg._clusters["test"] = conn
+    reg._active_name = "test"
+    return reg
 
 
 @pytest.fixture()
-def vm_client() -> MockVMClient:
-    return MockVMClient()
-
-
-@pytest.fixture()
-def vl_client() -> MockVLClient:
-    return MockVLClient()
-
-
-@pytest.fixture()
-def mcp_server(gf_client, vm_client, vl_client):
-    """Create an MCP server with mock backends."""
-    return create_server(gf_client, vm_client, vl_client, port=0)
+def registry() -> ClusterRegistry:
+    return make_registry()

@@ -13,11 +13,9 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from glassflow.etl import Client
     from mcp.server.fastmcp import FastMCP
 
-    from glassflow_mcp.vl_client import VLClient
-    from glassflow_mcp.vm_client import VMClient
+    from glassflow_mcp.cluster import ClusterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +67,7 @@ def _format_log_entry(log: dict) -> dict:
 
 def register_diagnostics_tools(
     mcp: FastMCP,
-    client: Client,
-    vm: VMClient,
-    vl: VLClient,
+    registry: ClusterRegistry,
 ) -> None:
     """Register diagnostic tools on the given MCP server."""
 
@@ -95,7 +91,8 @@ def register_diagnostics_tools(
             pipeline_id: The unique identifier of the pipeline.
         """
         try:
-            p = client.get_pipeline(pipeline_id)
+            conn = registry.active()
+            p = conn.gf_client.get_pipeline(pipeline_id)
             state = p.dlq.state()
             return json.dumps(state, indent=2, default=str)
         except Exception as exc:
@@ -140,6 +137,9 @@ def register_diagnostics_tools(
 
         query = template.format(pid=pipeline_id)
         try:
+            vm = registry.active().vm_client
+            if vm is None:
+                return "Metrics not available — no VictoriaMetrics URL configured for this cluster."
             results = vm.instant_query(query)
             if not results:
                 return json.dumps(
@@ -195,6 +195,9 @@ def register_diagnostics_tools(
             return f'Rejected: query must include pipeline_id="{pipeline_id}" filter.'
 
         try:
+            vm = registry.active().vm_client
+            if vm is None:
+                return "Metrics not available — no VictoriaMetrics URL configured for this cluster."
             results = vm.instant_query(promql)
             return json.dumps(
                 {"query": promql, "pipeline_id": pipeline_id, "results": results},
@@ -244,6 +247,9 @@ def register_diagnostics_tools(
         query = " AND ".join(parts)
 
         try:
+            vl = registry.active().vl_client
+            if vl is None:
+                return "Logs not available — no VictoriaLogs URL configured for this cluster."
             logs = vl.query(query, limit=limit)
             formatted = [_format_log_entry(log) for log in logs]
             return json.dumps(
@@ -276,6 +282,9 @@ def register_diagnostics_tools(
 
         query = f'pipeline_id:"{pipeline_id}" AND (severity_text:"ERROR" OR severity_text:"WARN")'
         try:
+            vl = registry.active().vl_client
+            if vl is None:
+                return "Logs not available — no VictoriaLogs URL configured for this cluster."
             logs = vl.query(query, limit=limit)
             formatted = [_format_log_entry(log) for log in logs]
             return json.dumps(
@@ -321,7 +330,8 @@ def register_diagnostics_tools(
         # 1. Health / status + reuse pipeline object for DLQ
         p = None
         try:
-            p = client.get_pipeline(pipeline_id)
+            conn = registry.active()
+            p = conn.gf_client.get_pipeline(pipeline_id)
             result["status"] = p.health()
         except Exception as exc:
             logger.exception("diagnose_pipeline: health failed for %s", pipeline_id)
@@ -329,19 +339,25 @@ def register_diagnostics_tools(
 
         # 2. Throughput metrics
         metrics: dict = {}
-        for metric_key in (
-            "throughput_in",
-            "throughput_out",
-            "write_rate",
-            "latency_p95",
-        ):
-            template = _METRIC_QUERIES[metric_key]
-            query = template.format(pid=pipeline_id)
-            try:
-                metrics[metric_key] = vm.get_metric_value(query)
-            except Exception:
-                metrics[metric_key] = None
-        result["metrics"] = metrics
+        try:
+            conn = registry.active()
+        except RuntimeError:
+            conn = None
+        vm = conn.vm_client if conn else None
+        if vm:
+            for metric_key in (
+                "throughput_in",
+                "throughput_out",
+                "write_rate",
+                "latency_p95",
+            ):
+                template = _METRIC_QUERIES[metric_key]
+                query = template.format(pid=pipeline_id)
+                try:
+                    metrics[metric_key] = vm.get_metric_value(query)
+                except Exception:
+                    metrics[metric_key] = None
+        result["metrics"] = metrics or {"message": "No VictoriaMetrics configured"}
 
         # 3. DLQ state (reuse pipeline object from step 1)
         if p:
@@ -353,14 +369,18 @@ def register_diagnostics_tools(
             result["dlq"] = {"error": "Pipeline not reachable"}
 
         # 4. Recent errors
-        error_query = (
-            f'pipeline_id:"{pipeline_id}" AND (severity_text:"ERROR" OR severity_text:"WARN")'
-        )
-        try:
-            logs = vl.query(error_query, limit=10)
-            result["recent_errors"] = [_format_log_entry(log) for log in logs]
-        except Exception as exc:
-            logger.exception("diagnose_pipeline: logs failed for %s", pipeline_id)
-            result["recent_errors"] = {"error": str(exc)}
+        vl = conn.vl_client if conn else None
+        if vl:
+            error_query = (
+                f'pipeline_id:"{pipeline_id}" AND (severity_text:"ERROR" OR severity_text:"WARN")'
+            )
+            try:
+                logs = vl.query(error_query, limit=10)
+                result["recent_errors"] = [_format_log_entry(log) for log in logs]
+            except Exception as exc:
+                logger.exception("diagnose_pipeline: logs failed for %s", pipeline_id)
+                result["recent_errors"] = {"error": str(exc)}
+        else:
+            result["recent_errors"] = {"message": "No VictoriaLogs configured"}
 
         return json.dumps(result, indent=2, default=str)

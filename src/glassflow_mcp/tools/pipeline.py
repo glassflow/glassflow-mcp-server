@@ -7,13 +7,14 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from glassflow.etl import Client
     from mcp.server.fastmcp import FastMCP
+
+    from glassflow_mcp.cluster import ClusterRegistry
 
 logger = logging.getLogger(__name__)
 
 
-def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
+def register_pipeline_tools(mcp: FastMCP, registry: ClusterRegistry) -> None:
     """Register all pipeline management tools on the given MCP server."""
 
     @mcp.tool()
@@ -27,6 +28,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
         specific ones with get_pipeline or get_pipeline_health.
         """
         try:
+            client = registry.active().gf_client
             pipelines = client.list_pipelines()
             return json.dumps(pipelines, indent=2, default=str)
         except Exception as exc:
@@ -47,6 +49,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             pipeline_id: The unique identifier of the pipeline.
         """
         try:
+            client = registry.active().gf_client
             p = client.get_pipeline(pipeline_id)
             return json.dumps(p.to_dict(), indent=2, default=str)
         except Exception as exc:
@@ -66,6 +69,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             pipeline_id: The unique identifier of the pipeline.
         """
         try:
+            client = registry.active().gf_client
             p = client.get_pipeline(pipeline_id)
             health = p.health()
             return json.dumps(health, indent=2, default=str)
@@ -93,6 +97,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             return f"Invalid JSON: {exc}"
 
         try:
+            client = registry.active().gf_client
             p = client.create_pipeline(pipeline_config=config_dict)
             return json.dumps(
                 {"status": "created", "pipeline_id": p.pipeline_id},
@@ -114,6 +119,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             pipeline_id: The unique identifier of the pipeline to stop.
         """
         try:
+            client = registry.active().gf_client
             client.stop_pipeline(pipeline_id)
             return json.dumps({"status": "stopped", "pipeline_id": pipeline_id})
         except Exception as exc:
@@ -131,6 +137,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             pipeline_id: The unique identifier of the pipeline to resume.
         """
         try:
+            client = registry.active().gf_client
             p = client.get_pipeline(pipeline_id)
             p.resume()
             return json.dumps({"status": "resuming", "pipeline_id": pipeline_id})
@@ -163,6 +170,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             return f"Invalid JSON in config_patch: {exc}"
 
         try:
+            client = registry.active().gf_client
             p = client.get_pipeline(pipeline_id)
             p.update(patch)
             return json.dumps(
@@ -184,6 +192,7 @@ def register_pipeline_tools(mcp: FastMCP, client: Client) -> None:
             pipeline_id: The unique identifier of the pipeline to delete.
         """
         try:
+            client = registry.active().gf_client
             client.delete_pipeline(pipeline_id)
             return json.dumps({"status": "deleted", "pipeline_id": pipeline_id})
         except Exception as exc:

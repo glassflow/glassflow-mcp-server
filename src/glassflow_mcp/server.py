@@ -6,45 +6,38 @@ from typing import TYPE_CHECKING
 
 from mcp.server.fastmcp import FastMCP
 
+from glassflow_mcp.cluster import ClusterRegistry, register_cluster_tools
 from glassflow_mcp.resources import register_resources
 from glassflow_mcp.tools.diagnostics import register_diagnostics_tools
 from glassflow_mcp.tools.pipeline import register_pipeline_tools
 
 if TYPE_CHECKING:
-    from glassflow.etl import Client
-
-    from glassflow_mcp.vl_client import VLClient
-    from glassflow_mcp.vm_client import VMClient
+    pass
 
 _INSTRUCTIONS = (
-    "Manage and diagnose GlassFlow streaming pipelines. "
-    "Use list_pipelines to see all pipelines, get_pipeline_health "
-    "to check status, and create_pipeline to create new ones.\n\n"
-    "IMPORTANT: When the user asks to create a pipeline, ALWAYS ask "
-    "them for the specific details first before calling create_pipeline. "
-    "You need to know: the Kafka topic name, Kafka broker addresses and "
-    "credentials, the ClickHouse host/credentials/table name, the event "
-    "schema (field names and types), and what transforms they want "
-    "(dedup, filter, stateless). Do NOT use placeholder or example "
-    "values from the documentation — always use real values provided "
-    "by the user.\n\n"
-    "For diagnosing pipeline issues, use diagnose_pipeline first to "
-    "get a complete snapshot, then drill deeper with query_pipeline_logs "
-    "or query_pipeline_metrics as needed.\n\n"
-    "Read the resource glassflow://docs/pipeline-v3-format for the "
-    "V3 configuration format reference."
+    "Manage and diagnose GlassFlow streaming pipelines across multiple clusters.\n\n"
+    "FIRST: If no cluster is connected, use connect_cluster to register a "
+    "GlassFlow cluster. Ask the user for the GlassFlow API URL.\n\n"
+    "PIPELINE CREATION: When the user asks to create a pipeline, ALWAYS ask "
+    "them for the specific details first. You need: Kafka topic, broker "
+    "addresses/credentials, ClickHouse host/credentials/table, event schema, "
+    "and desired transforms. Do NOT use placeholder values.\n\n"
+    "DIAGNOSTICS: Use diagnose_pipeline first for a complete snapshot, then "
+    "drill deeper with query_pipeline_logs or query_pipeline_metrics.\n\n"
+    "MULTI-CLUSTER: Use list_clusters to see connected clusters and "
+    "switch_cluster to change the active one.\n\n"
+    "Read the resource glassflow://docs/pipeline-v3-format for the V3 "
+    "configuration format reference."
 )
 
 
 def create_server(
-    gf_client: Client,
-    vm_client: VMClient,
-    vl_client: VLClient,
+    registry: ClusterRegistry,
     *,
     host: str = "0.0.0.0",
     port: int = 8080,
 ) -> FastMCP:
-    """Create and configure the MCP server with the given backends.
+    """Create and configure the MCP server with the given cluster registry.
 
     This factory keeps module-level imports side-effect-free so the
     server can be instantiated in tests with mock clients.
@@ -57,28 +50,32 @@ def create_server(
     )
 
     register_resources(mcp)
-    register_pipeline_tools(mcp, gf_client)
-    register_diagnostics_tools(mcp, gf_client, vm_client, vl_client)
+    register_cluster_tools(mcp, registry)
+    register_pipeline_tools(mcp, registry)
+    register_diagnostics_tools(mcp, registry)
 
     return mcp
 
 
 def main() -> None:
     """Run the MCP server with SSE transport."""
-    from glassflow.etl import Client
-
     from glassflow_mcp.config import Config
-    from glassflow_mcp.vl_client import VLClient
-    from glassflow_mcp.vm_client import VMClient
 
     config = Config.from_env()
 
-    gf_client = Client(host=config.glassflow_api_url)
-    gf_client.disable_usagestats()
-    vm = VMClient(base_url=config.victoriametrics_url)
-    vl = VLClient(base_url=config.victorialogs_url)
+    registry = ClusterRegistry()
 
-    mcp = create_server(gf_client, vm, vl, host="0.0.0.0", port=config.mcp_port)
+    # If env vars are set, auto-connect a "default" cluster for
+    # backwards compatibility (single-cluster deployments).
+    if config.glassflow_api_url:
+        registry.connect(
+            name="default",
+            api_url=config.glassflow_api_url,
+            vm_url=config.victoriametrics_url,
+            vl_url=config.victorialogs_url,
+        )
+
+    mcp = create_server(registry, host="0.0.0.0", port=config.mcp_port)
     mcp.run(transport="sse")
 
 

@@ -26,5 +26,5 @@ This policy covers:
 ## Known Security Considerations
 
 - The MCP server has **no built-in authentication**. When exposed publicly (via Ingress), protect it with an external auth layer (Cloudflare Access, OAuth2 Proxy, etc.).
-- The `query_custom_metric` tool restricts PromQL queries to `glassflow_gfm_*` metrics only.
+- The `query_custom_metric` tool restricts PromQL queries to `gfm_*` metrics only.
 - All user inputs in LogsQL/PromQL queries are validated against a safe character set to prevent injection.

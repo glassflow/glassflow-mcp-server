@@ -13,6 +13,7 @@ class Config:
     glassflow_api_url: str
     victoriametrics_url: str
     victorialogs_url: str
+    nats_monitoring_url: str
     mcp_port: int
 
     @classmethod
@@ -29,6 +30,10 @@ class Config:
             victorialogs_url=os.environ.get(
                 "VICTORIALOGS_URL",
                 "http://glassflow-victoria-logs-single-server.glassflow.svc.cluster.local:9428",
+            ),
+            nats_monitoring_url=os.environ.get(
+                "NATS_MONITORING_URL",
+                "http://glassflow-nats-0.glassflow-nats.glassflow.svc.cluster.local:8222",
             ),
             mcp_port=int(os.environ.get("MCP_PORT", "8080")),
         )

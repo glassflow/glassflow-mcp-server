@@ -28,12 +28,19 @@ class MockPipeline:
         }
         self.dlq = MagicMock()
         self.dlq.state.return_value = {"messages": 0}
+        self._streams: list[dict] = kwargs.get("streams", [])
 
     def to_dict(self) -> dict:
         return self._config
 
     def health(self) -> dict:
         return self._health
+
+    def get_streams(self) -> list[dict]:
+        return self._streams
+
+    def set_streams(self, streams: list[dict]) -> None:
+        self._streams = streams
 
     def resume(self) -> None:
         pass
@@ -133,15 +140,51 @@ class MockVLClient:
         pass
 
 
+class MockNATSClient:
+    """Mock NATS JetStream monitoring client."""
+
+    def __init__(self) -> None:
+        self._stream_reports: dict[str, dict] = {}
+
+    def set_stream_report(self, stream_name: str, report: dict) -> None:
+        self._stream_reports[stream_name] = report
+
+    def get_stream_report(self, stream_name: str) -> dict | None:
+        return self._stream_reports.get(stream_name)
+
+    def get_consumer_report(
+        self, stream_name: str, consumer_name: str | None = None
+    ) -> dict | None:
+        report = self._stream_reports.get(stream_name)
+        if report is None:
+            return None
+        consumers = report.get("consumer_details", [])
+        if consumer_name:
+            consumers = [c for c in consumers if c.get("name") == consumer_name]
+        return {
+            "stream_name": stream_name,
+            "consumer_count": len(consumers),
+            "consumers": consumers,
+        }
+
+    def healthy(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        pass
+
+
 def make_registry(
     gf: MockGlassFlowClient | None = None,
     vm: MockVMClient | None = None,
     vl: MockVLClient | None = None,
+    nats: MockNATSClient | None = None,
 ) -> ClusterRegistry:
     """Create a ClusterRegistry with a pre-connected 'test' cluster."""
     gf = gf or MockGlassFlowClient()
     vm = vm or MockVMClient()
     vl = vl or MockVLClient()
+    nats = nats or MockNATSClient()
 
     reg = ClusterRegistry()
     conn = ClusterConnection(
@@ -150,6 +193,7 @@ def make_registry(
         gf_client=gf,
         vm_client=vm,
         vl_client=vl,
+        nats_client=nats,
     )
     reg._clusters["test"] = conn
     reg._active_name = "test"

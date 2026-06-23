@@ -24,26 +24,44 @@ logger = logging.getLogger(__name__)
 _SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_.\-]+$")
 
 # Only metric names matching this prefix are allowed in custom queries.
-_ALLOWED_METRIC_PREFIX = "glassflow_gfm_"
+#
+# The GlassFlow engine emits all signals under the bare `gfm_*` prefix. The
+# `prometheusremotewrite` exporter that feeds VictoriaMetrics (which this server
+# queries) does NOT prepend the service name, so VM stores `gfm_kafka_records_read_total`
+# etc. There is NO `glassflow_gfm_*` series — that prefix only exists on the pull-only
+# Prometheus `/metrics` endpoint (namespaced `glassflow_ee_gfm_*`), which we never read.
+# Using `glassflow_gfm_*` here matches zero series and every metric returns null.
+_ALLOWED_METRIC_PREFIX = "gfm_"
 
 # Pre-built PromQL templates keyed by metric name.
 # {pid} is replaced with the actual pipeline_id at query time.
 _METRIC_QUERIES = {
-    "throughput_in": ('rate(glassflow_gfm_kafka_records_read_total{{pipeline_id="{pid}"}}[5m])'),
-    "throughput_out": (
-        'rate(glassflow_gfm_clickhouse_records_written_total{{pipeline_id="{pid}"}}[5m])'
+    # Kafka ingestor reads OR OTLP receiver hand-offs — a pipeline is always one
+    # type, never both, so `or` returns whichever side has series. The OTLP
+    # components are `otlp.logs`/`otlp.metrics`/`otlp.traces`; we match them with
+    # `otlp.*` rather than escaping the dot — a backslash inside a PromQL
+    # double-quoted string is an invalid escape and VM rejects it with HTTP 422.
+    "throughput_in": (
+        'sum(rate(gfm_kafka_records_read_total{{pipeline_id="{pid}",component="ingestor"}}[5m]))'
+        " or "
+        'sum(rate(gfm_processor_messages_total{{pipeline_id="{pid}",'
+        'component=~"otlp.*",status="out"}}[5m]))'
     ),
-    "write_rate": ('glassflow_gfm_clickhouse_records_written_per_second{{pipeline_id="{pid}"}}'),
+    "throughput_out": (
+        'sum(rate(gfm_clickhouse_records_written_total{{pipeline_id="{pid}"}}[5m]))'
+    ),
+    # No gauge for write rate is emitted; use a short-window rate of the sink counter.
+    "write_rate": ('sum(rate(gfm_clickhouse_records_written_total{{pipeline_id="{pid}"}}[1m]))'),
+    # histogram_quantile needs the buckets summed by `le` across the per-component
+    # /per-instance series, otherwise it computes per-series quantiles (or nothing).
     "latency_p95": (
         "histogram_quantile(0.95, "
-        'rate(glassflow_gfm_processing_duration_seconds_bucket{{pipeline_id="{pid}"}}[5m]))'
+        'sum by (le) (rate(gfm_processing_duration_seconds_bucket{{pipeline_id="{pid}"}}[5m])))'
     ),
-    "dlq_rate": ('rate(glassflow_gfm_dlq_records_written_total{{pipeline_id="{pid}"}}[5m])'),
-    "bytes_in": (
-        'rate(glassflow_gfm_bytes_processed_total{{pipeline_id="{pid}",direction="in"}}[5m])'
-    ),
+    "dlq_rate": ('sum(rate(gfm_dlq_records_written_total{{pipeline_id="{pid}"}}[5m]))'),
+    "bytes_in": ('sum(rate(gfm_bytes_processed_total{{pipeline_id="{pid}",direction="in"}}[5m]))'),
     "bytes_out": (
-        'rate(glassflow_gfm_bytes_processed_total{{pipeline_id="{pid}",direction="out"}}[5m])'
+        'sum(rate(gfm_bytes_processed_total{{pipeline_id="{pid}",direction="out"}}[5m]))'
     ),
 }
 
@@ -63,6 +81,41 @@ def _format_log_entry(log: dict) -> dict:
         "service": log.get("service.name", ""),
         "message": log.get("_msg", log.get("body", "")),
     }
+
+
+def _collect_nats_streams(conn, streams: list[dict]) -> dict:
+    """Build the diagnose_pipeline ``nats_streams`` section.
+
+    For each stream returned by ``pipeline.get_streams()`` (each a
+    ``{stream_name, component, ...}`` dict), look up its live NATS report
+    and merge it in, keyed by stream name. Failures are captured per
+    stream so one bad stream never breaks the whole snapshot.
+    """
+    nats = conn.nats_client if conn else None
+    if nats is None:
+        return {"message": "No NATS monitoring URL configured for this cluster"}
+
+    out: dict = {}
+    for s in streams:
+        name = s.get("stream_name")
+        if not name:
+            continue
+        entry: dict = {"component": s.get("component", "")}
+        if s.get("source_id"):
+            entry["source_id"] = s["source_id"]
+        try:
+            report = nats.get_stream_report(name)
+        except Exception as exc:
+            entry["error"] = str(exc)
+            out[name] = entry
+            continue
+        if report is None:
+            entry["message"] = "stream not found in NATS (pipeline may be stopped)"
+        else:
+            report.pop("stream_name", None)
+            entry.update(report)
+        out[name] = entry
+    return out
 
 
 def register_diagnostics_tools(
@@ -169,16 +222,16 @@ def register_diagnostics_tools(
     def query_custom_metric(pipeline_id: str, promql: str) -> str:
         """Run a custom PromQL query for GlassFlow metrics.
 
-        Only queries against glassflow_gfm_* metrics are allowed.
-        The query must include a pipeline_id filter matching the
-        provided pipeline_id.
+        Only queries against gfm_* metrics are allowed (the prefix
+        VictoriaMetrics actually stores). The query must include a
+        pipeline_id filter matching the provided pipeline_id.
 
         Example:
-          rate(glassflow_gfm_processor_messages_total{pipeline_id="my-pipe",status="filtered"}[5m])
+          rate(gfm_processor_messages_total{pipeline_id="my-pipe",status="filtered"}[5m])
 
         Args:
             pipeline_id: Pipeline ID — must appear in the query.
-            promql: PromQL query (must reference glassflow_gfm_* metrics).
+            promql: PromQL query (must reference gfm_* metrics).
         """
         if err := _validate_id(pipeline_id, "pipeline_id"):
             return err
@@ -301,6 +354,126 @@ def register_diagnostics_tools(
             return f"Error getting errors for {pipeline_id}: {exc}"
 
     # -----------------------------------------------------------------
+    # NATS JetStream (Enterprise)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_pipeline_streams(pipeline_id: str) -> str:
+        """List the NATS JetStream streams backing a GlassFlow pipeline.
+
+        Returns each stream's name and the component it belongs to
+        (ingestor, dedup, join, sink, dlq), plus the source_id where
+        applicable. Use this FIRST to discover stream names, then pass a
+        stream_name to get_stream_report or get_consumer_report for live
+        message counts and consumer health.
+
+        Note: this is an Enterprise feature. On a non-licensed backend it
+        returns a licensing error.
+
+        Args:
+            pipeline_id: The unique identifier of the pipeline.
+        """
+        if err := _validate_id(pipeline_id, "pipeline_id"):
+            return err
+        try:
+            conn = registry.active()
+            p = conn.gf_client.get_pipeline(pipeline_id)
+            streams = p.get_streams()
+            return json.dumps(
+                {"pipeline_id": pipeline_id, "count": len(streams), "streams": streams},
+                indent=2,
+                default=str,
+            )
+        except Exception as exc:
+            logger.exception("get_pipeline_streams failed for %s", pipeline_id)
+            return f"Error getting streams for pipeline {pipeline_id}: {exc}"
+
+    @mcp.tool()
+    def get_stream_report(stream_name: str) -> str:
+        """Get a detailed NATS JetStream stream report.
+
+        Returns message count, byte size, sequence numbers, subject list,
+        retention policy, and a per-consumer breakdown (ack-pending,
+        unprocessed backlog, filter subject) for the specified stream.
+
+        Use get_pipeline_streams first to discover stream names for a
+        pipeline, then use this tool to inspect specific streams. A stream
+        with messages but zero consumers, or a consumer with a growing
+        unprocessed count, points to stalled data flow.
+
+        Args:
+            stream_name: The NATS stream name (e.g., gfm-abc123-ingestor_left-out_0).
+        """
+        if err := _validate_id(stream_name, "stream_name"):
+            return err
+        try:
+            nats = registry.active().nats_client
+            if nats is None:
+                return (
+                    "NATS monitoring not available — no NATS monitoring URL "
+                    "configured for this cluster."
+                )
+            report = nats.get_stream_report(stream_name)
+            if report is None:
+                return json.dumps(
+                    {
+                        "stream_name": stream_name,
+                        "message": "Stream not found in NATS. The pipeline may be "
+                        "stopped, or the stream name may be wrong — use "
+                        "get_pipeline_streams to list valid names.",
+                    },
+                    indent=2,
+                )
+            return json.dumps(report, indent=2, default=str)
+        except Exception as exc:
+            logger.exception("get_stream_report failed for %s", stream_name)
+            return f"Error getting stream report for {stream_name}: {exc}"
+
+    @mcp.tool()
+    def get_consumer_report(stream_name: str, consumer_name: str = "") -> str:
+        """Get a NATS JetStream consumer report for a stream.
+
+        Returns each consumer's ack-pending count, unprocessed (undelivered)
+        backlog, redelivery count, and filter subject. If consumer_name is
+        omitted, reports all consumers on the stream.
+
+        Diagnostic signals:
+          - ack_pending > 0 and not draining: a stuck/slow consumer
+          - unprocessed growing: the consumer is falling behind (backlog)
+          - filter_subject not matching the stream's subjects: the
+            subject-mismatch bug pattern (zero output)
+
+        Args:
+            stream_name: The NATS stream name.
+            consumer_name: Optional specific consumer; omit for all consumers.
+        """
+        if err := _validate_id(stream_name, "stream_name"):
+            return err
+        if consumer_name and (err := _validate_id(consumer_name, "consumer_name")):
+            return err
+        try:
+            nats = registry.active().nats_client
+            if nats is None:
+                return (
+                    "NATS monitoring not available — no NATS monitoring URL "
+                    "configured for this cluster."
+                )
+            report = nats.get_consumer_report(stream_name, consumer_name or None)
+            if report is None:
+                return json.dumps(
+                    {
+                        "stream_name": stream_name,
+                        "message": "Stream not found in NATS. Use "
+                        "get_pipeline_streams to list valid stream names.",
+                    },
+                    indent=2,
+                )
+            return json.dumps(report, indent=2, default=str)
+        except Exception as exc:
+            logger.exception("get_consumer_report failed for %s", stream_name)
+            return f"Error getting consumer report for {stream_name}: {exc}"
+
+    # -----------------------------------------------------------------
     # Composite diagnostic
     # -----------------------------------------------------------------
 
@@ -318,6 +491,8 @@ def register_diagnostics_tools(
           - metrics: throughput_in, throughput_out, write_rate, latency_p95
           - dlq: dead-letter queue message count
           - recent_errors: last 10 ERROR/WARN log lines
+          - nats_streams: per-stream message counts and consumer health
+            (Enterprise; absent if NATS monitoring is not configured)
 
         Args:
             pipeline_id: The unique identifier of the pipeline.
@@ -382,5 +557,16 @@ def register_diagnostics_tools(
                 result["recent_errors"] = {"error": str(exc)}
         else:
             result["recent_errors"] = {"message": "No VictoriaLogs configured"}
+
+        # 5. NATS JetStream health (Enterprise). Reuse pipeline object from step 1.
+        if p and conn:
+            try:
+                streams = p.get_streams()
+                result["nats_streams"] = _collect_nats_streams(conn, streams)
+            except Exception as exc:
+                logger.exception("diagnose_pipeline: nats streams failed for %s", pipeline_id)
+                result["nats_streams"] = {"error": str(exc)}
+        else:
+            result["nats_streams"] = {"error": "Pipeline not reachable"}
 
         return json.dumps(result, indent=2, default=str)

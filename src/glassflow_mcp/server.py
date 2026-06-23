@@ -73,6 +73,7 @@ def main() -> None:
             api_url=config.glassflow_api_url,
             vm_url=config.victoriametrics_url,
             vl_url=config.victorialogs_url,
+            nats_url=config.nats_monitoring_url,
         )
 
     mcp = create_server(registry, host="0.0.0.0", port=config.mcp_port)

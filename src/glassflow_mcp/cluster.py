@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from glassflow.etl import Client
+    from glassflow.ee import Client
     from mcp.server.fastmcp import FastMCP
 
+    from glassflow_mcp.nats_client import NATSClient
     from glassflow_mcp.vl_client import VLClient
     from glassflow_mcp.vm_client import VMClient
 
@@ -31,8 +32,10 @@ class ClusterConnection:
     gf_client: Client
     vm_client: VMClient | None = None
     vl_client: VLClient | None = None
+    nats_client: NATSClient | None = None
     vm_url: str = ""
     vl_url: str = ""
+    nats_url: str = ""
 
 
 class ClusterRegistry:
@@ -52,14 +55,16 @@ class ClusterRegistry:
         api_url: str,
         vm_url: str = "",
         vl_url: str = "",
+        nats_url: str = "",
     ) -> ClusterConnection:
         """Register a new cluster connection.
 
         Creates SDK and observability clients. Sets as active if this
         is the first cluster.
         """
-        from glassflow.etl import Client
+        from glassflow.ee import Client
 
+        from glassflow_mcp.nats_client import NATSClient
         from glassflow_mcp.vl_client import VLClient
         from glassflow_mcp.vm_client import VMClient
 
@@ -68,6 +73,7 @@ class ClusterRegistry:
 
         vm = VMClient(base_url=vm_url) if vm_url else None
         vl = VLClient(base_url=vl_url) if vl_url else None
+        nats = NATSClient(base_url=nats_url) if nats_url else None
 
         conn = ClusterConnection(
             name=name,
@@ -75,8 +81,10 @@ class ClusterRegistry:
             gf_client=gf,
             vm_client=vm,
             vl_client=vl,
+            nats_client=nats,
             vm_url=vm_url,
             vl_url=vl_url,
+            nats_url=nats_url,
         )
         self._clusters[name] = conn
 
@@ -108,6 +116,8 @@ class ClusterRegistry:
             conn.vm_client.close()
         if conn.vl_client:
             conn.vl_client.close()
+        if conn.nats_client:
+            conn.nats_client.close()
         if self._active_name == name:
             self._active_name = next(iter(self._clusters), None)
         logger.info("Disconnected cluster %r", name)
@@ -131,6 +141,7 @@ class ClusterRegistry:
                 "api_url": conn.api_url,
                 "vm_url": conn.vm_url or "(not configured)",
                 "vl_url": conn.vl_url or "(not configured)",
+                "nats_url": conn.nats_url or "(not configured)",
                 "active": conn.name == self._active_name,
             }
             for conn in self._clusters.values()
@@ -149,6 +160,7 @@ def register_cluster_tools(mcp: FastMCP, registry: ClusterRegistry) -> None:
         api_url: str,
         vm_url: str = "",
         vl_url: str = "",
+        nats_url: str = "",
     ) -> str:
         """Connect to a GlassFlow cluster.
 
@@ -156,8 +168,9 @@ def register_cluster_tools(mcp: FastMCP, registry: ClusterRegistry) -> None:
         connected becomes the active cluster. All pipeline and diagnostic
         tools operate against the active cluster.
 
-        Ask the user for the GlassFlow API URL. VictoriaMetrics and
-        VictoriaLogs URLs are optional — metrics and log tools will be
+        Ask the user for the GlassFlow API URL. VictoriaMetrics,
+        VictoriaLogs, and NATS monitoring URLs are optional — the
+        corresponding metrics, log, and NATS-stream tools will be
         unavailable for clusters without them.
 
         Args:
@@ -165,9 +178,11 @@ def register_cluster_tools(mcp: FastMCP, registry: ClusterRegistry) -> None:
             api_url: GlassFlow REST API URL (e.g., "http://glassflow-api:8081").
             vm_url: VictoriaMetrics URL (optional, for metrics tools).
             vl_url: VictoriaLogs URL (optional, for log tools).
+            nats_url: NATS HTTP monitoring URL (optional, port 8222, for
+                NATS stream/consumer diagnostic tools).
         """
         try:
-            conn = registry.connect(name, api_url, vm_url, vl_url)
+            conn = registry.connect(name, api_url, vm_url, vl_url, nats_url)
             return json.dumps(
                 {
                     "status": "connected",

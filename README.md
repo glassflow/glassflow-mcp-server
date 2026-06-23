@@ -7,7 +7,8 @@
 - **Multi-cluster** — connect to multiple GlassFlow deployments and switch between them at runtime
 - **Pipeline management** — create, list, get, edit, stop, resume, delete pipelines
 - **Diagnostics** — query throughput, latency, DLQ state, and error logs
-- **`diagnose_pipeline`** — single-call diagnostic snapshot combining health, metrics, DLQ, and recent errors
+- **NATS JetStream diagnostics** (Enterprise) — inspect stream message counts and consumer health (`get_pipeline_streams`, `get_stream_report`, `get_consumer_report`) to spot stuck consumers, backlogs, and subject mismatches
+- **`diagnose_pipeline`** — single-call diagnostic snapshot combining health, metrics, DLQ, recent errors, and NATS stream health
 - **V3 config reference** — MCP resource with the complete pipeline configuration format
 - Uses the official [GlassFlow Python SDK](https://github.com/glassflow/glassflow-python-sdk)
 
@@ -87,7 +88,7 @@ If `GLASSFLOW_API_URL` is set as an env var, the server auto-connects a `default
 |---|---|
 | `diagnose_pipeline` | Complete diagnostic snapshot (health + metrics + DLQ + errors) |
 | `query_pipeline_metrics` | Query specific metrics (throughput, latency, DLQ rate, bytes) |
-| `query_custom_metric` | Custom PromQL query (restricted to `glassflow_gfm_*` metrics) |
+| `query_custom_metric` | Custom PromQL query (restricted to `gfm_*` metrics) |
 | `query_pipeline_logs` | Search logs by pipeline, severity, and component |
 | `get_pipeline_errors` | Recent ERROR/WARN logs for a pipeline |
 | `get_dlq_state` | Dead-letter queue message count |

@@ -60,6 +60,16 @@ class TestQueryPipelineMetrics:
             'pipe"; drop table', "throughput_in"
         )
 
+    def test_templates_have_no_invalid_promql_escapes(self):
+        # A backslash inside a PromQL double-quoted string is an invalid escape
+        # and VictoriaMetrics rejects the query with HTTP 422. None of our
+        # templates should need one (use `otlp.*`, not `otlp\.logs`).
+        from glassflow_mcp.tools.diagnostics import _METRIC_QUERIES
+
+        for name, template in _METRIC_QUERIES.items():
+            rendered = template.format(pid="p")
+            assert "\\" not in rendered, f"{name} template contains a backslash escape"
+
 
 class TestQueryCustomMetric:
     def test_allowed_query(self):
@@ -68,7 +78,7 @@ class TestQueryCustomMetric:
         result = json.loads(
             _get_tool(mcp, "query_custom_metric")(
                 "my-pipe",
-                'glassflow_gfm_processor_messages_total{pipeline_id="my-pipe"}',
+                'gfm_processor_messages_total{pipeline_id="my-pipe"}',
             )
         )
         assert len(result["results"]) == 1
@@ -81,14 +91,12 @@ class TestQueryCustomMetric:
 
     def test_rejected_missing_pipeline_id(self):
         mcp, _, _, _ = _make_server()
-        assert "Rejected" in _get_tool(mcp, "query_custom_metric")(
-            "my-pipe", "glassflow_gfm_some_metric{}"
-        )
+        assert "Rejected" in _get_tool(mcp, "query_custom_metric")("my-pipe", "gfm_some_metric{}")
 
     def test_invalid_pipeline_id(self):
         mcp, _, _, _ = _make_server()
         assert "Invalid pipeline_id" in _get_tool(mcp, "query_custom_metric")(
-            'pipe" OR 1=1', "glassflow_gfm_x"
+            'pipe" OR 1=1', "gfm_x"
         )
 
 
